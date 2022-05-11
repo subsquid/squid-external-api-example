@@ -11,3 +11,10 @@ type HistoricalBalance @entity {
   balance: BigInt!
   date: DateTime!
 }
+
+type Transfer @entity {
+  id: ID!
+  amount: BigInt!
+  date: DateTime!
+  price: BigInt!
+}
