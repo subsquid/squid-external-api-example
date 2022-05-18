@@ -11,30 +11,6 @@ import axios from "axios";
 import moment from "moment";
 
 const priceCache = new Map();
-async function getTokenPriceByDate(date: string): Promise<bigint> {
-  if (priceCache.has(date)) return priceCache.get(date);
-
-  priceCache.set(
-    date,
-    axios
-      .get(
-        `https://api.coingecko.com/api/v3/coins/${blockchain}/history?date=${date}&localization=false`
-      )
-      .then((res) => {
-        // console.log(`statusCode: ${res.status}`);
-        return res.data.market_data.current_price.usd;
-      })
-      .catch((error) => {
-        console.error(error);
-        // Delete cache entry if API call fails
-        priceCache.delete(date);
-        return Promise.reject(error);
-      })
-  );
-
-  return priceCache.get(date);
-}
-
 const blockchain = "kusama";
 const processor = new SubstrateProcessor(`${blockchain}_balances`);
 
@@ -89,6 +65,8 @@ processor.addEventHandler("balances.Transfer", async (ctx) => {
   await ctx.store.save(
     new Transfer({
       id: `${ctx.event.id}-transfer`,
+      to: toAcc,
+      from: fromAcc,
       amount: transfer.amount,
       date: transferDate,
       price: transferPrice
@@ -97,6 +75,30 @@ processor.addEventHandler("balances.Transfer", async (ctx) => {
 });
 
 processor.run();
+
+async function getTokenPriceByDate(date: string): Promise<bigint> {
+  if (priceCache.has(date)) return priceCache.get(date);
+
+  priceCache.set(
+    date,
+    axios
+      .get(
+        `https://api.coingecko.com/api/v3/coins/${blockchain}/history?date=${date}&localization=false`
+      )
+      .then((res) => {
+        // console.log(`statusCode: ${res.status}`);
+        return res.data.market_data.current_price.usd;
+      })
+      .catch((error) => {
+        console.error(error);
+        // Delete cache entry if API call fails
+        priceCache.delete(date);
+        return Promise.reject(error);
+      })
+  );
+
+  return priceCache.get(date);
+}
 
 interface TransferEvent {
   from: Uint8Array;

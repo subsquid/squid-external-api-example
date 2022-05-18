@@ -3,6 +3,8 @@ type Account @entity {
   id: ID!
   balance: BigInt!
   historicalBalances: [HistoricalBalance!] @derivedFrom(field: "account")
+  transfersTo: [Transfer!] @derivedFrom(field: "to")
+  transfersFrom: [Transfer!] @derivedFrom(field: "from")
 }
 
 type HistoricalBalance @entity {
@@ -14,6 +16,8 @@ type HistoricalBalance @entity {
 
 type Transfer @entity {
   id: ID!
+  to: Account!
+  from: Account!
   amount: BigInt!
   date: DateTime!
   price: BigInt!
