@@ -4,6 +4,7 @@ import {
   BatchProcessorItem,
   EventHandlerContext,
   SubstrateBatchProcessor,
+  toHex,
 } from "@subsquid/substrate-processor";
 import { lookupArchive } from "@subsquid/archive-registry";
 import { Account, HistoricalBalance, Transfer } from "./model";
@@ -14,9 +15,9 @@ import { Store, TypeormDatabase } from "@subsquid/typeorm-store";
 import { In } from "typeorm";
 
 const priceCache = new Map();
-const blockchain = "kusama";
+const blockchain = "moonbeam";
 const processor = new SubstrateBatchProcessor()
-  .setBatchSize(500)
+  .setBatchSize(100)
   .setDataSource({
     archive: lookupArchive(`${blockchain}`, { release: "FireSquid" }),
   })
@@ -71,11 +72,7 @@ processor.run(new TypeormDatabase(), async (ctx) => {
         date: transferDate,
       })
     );
-    const formattedDateString = moment(transferDate.toISOString()).format(
-      "DD-MM-yyyy"
-    );
 
-    const transferPrice = await getTokenPriceByDate(formattedDateString);
     transferHistory.push(
       new Transfer({
         id: `${t.id}-transfer`,
@@ -83,9 +80,19 @@ processor.run(new TypeormDatabase(), async (ctx) => {
         from: from,
         amount: t.amount,
         date: transferDate,
-        price: transferPrice,
       })
     );
+  }
+
+  // Need to do this outside the loop with a very coarse-grained pricing
+  // to avoid hitting public API rate limiting.
+  const transferDate = transferHistory[transferHistory.length-1].date;
+  const formattedDateString = moment(transferDate.toISOString()).format(
+    "DD-MM-yyyy"
+  );
+  const transferPrice = await getTokenPriceByDate(formattedDateString);
+  for (const transfer of transferHistory) {
+    transfer.price = transferPrice;
   }
 
   await ctx.store.save(Array.from(accounts.values()));
@@ -108,19 +115,16 @@ function getTransfers(ctx: Ctx): TransferEvent[] {
       if (item.name == "Balances.Transfer") {
         let e = new BalancesTransferEvent(ctx, item.event);
         let rec: { from: Uint8Array; to: Uint8Array; amount: bigint };
-        if (e.isV1020) {
-          let [from, to, amount] = e.asV1020;
+        if (e.asV900) {
+          let [from, to, amount] = e.asV900;
           rec = { from, to, amount };
-        } else if (e.isV1050) {
-          let [from, to, amount] = e.asV1050;
-          rec = { from, to, amount };
-        } else {
-          rec = e.asV9130;
+        }  else {
+          rec = e.asV1201;
         }
         transfers.push({
           id: item.event.id,
-          from: ss58.codec(blockchain).encode(rec.from),
-          to: ss58.codec(blockchain).encode(rec.to),
+          from: toHex(rec.from),
+          to: toHex(rec.to),
           amount: rec.amount,
           timestamp: BigInt(block.header.timestamp),
         });

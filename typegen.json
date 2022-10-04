@@ -1,7 +1,7 @@
 {
   "outDir": "src/types",
-  "specVersions": "https://kusama.archive.subsquid.io/graphql",
-  "typesBundle": "kusama",
+  "specVersions": "https://moonbeam.archive.subsquid.io/graphql",
+  "typesBundle": "moonbeam",
   "events": [
     "Balances.Transfer"
   ],
