@@ -77,7 +77,8 @@ processor.run(new TypeormDatabase(), async (ctx) => {
     const formattedDateString = moment(transferDate.toISOString()).format(
       "DD-MM-yyyy"
     );
-    const transferPrice = await getTokenPriceByDate(formattedDateString);
+    const debouncedTokenPriceByDate = debounce(getTokenPriceByDate, 1000);
+    const transferPrice = await debouncedTokenPriceByDate(formattedDateString);
 
     transferHistory.push(
       new Transfer({
@@ -145,8 +146,9 @@ async function getTokenPriceByDate(date: string): Promise<bigint> {
 
   if (priceCache.has(date)) return priceCache.get(date);
 
-  async function callExternalAPI(date: string) {
-    return axios
+  priceCache.set(
+    date,
+    axios
       .get(
         `https://api.coingecko.com/api/v3/coins/${blockchain}/history?date=${date}&localization=false`
       )
@@ -162,13 +164,6 @@ async function getTokenPriceByDate(date: string): Promise<bigint> {
         priceCache.delete(date);
         return Promise.reject(error);
       })
-  }
-  // need to debounce the API request, to avoid hitting public API rate limit
-  const debouncedTokenPriceByDate = debounce(callExternalAPI, 1500);
-
-  priceCache.set(
-    date,
-    await debouncedTokenPriceByDate(date)
   );
 
   return priceCache.get(date);
