@@ -13,6 +13,7 @@ import axios from "axios";
 import moment from "moment";
 import { Store, TypeormDatabase } from "@subsquid/typeorm-store";
 import { In } from "typeorm";
+import { debounce } from "ts-debounce";
 
 const priceCache = new Map();
 const blockchain = "moonbeam";
@@ -73,6 +74,11 @@ processor.run(new TypeormDatabase(), async (ctx) => {
       })
     );
 
+    const formattedDateString = moment(transferDate.toISOString()).format(
+      "DD-MM-yyyy"
+    );
+    const transferPrice = await getTokenPriceByDate(formattedDateString);
+
     transferHistory.push(
       new Transfer({
         id: `${t.id}-transfer`,
@@ -80,19 +86,9 @@ processor.run(new TypeormDatabase(), async (ctx) => {
         from: from,
         amount: t.amount,
         date: transferDate,
+        price: transferPrice,
       })
     );
-  }
-
-  // Need to do this outside the loop with a very coarse-grained pricing
-  // to avoid hitting public API rate limiting.
-  const transferDate = transferHistory[transferHistory.length-1].date;
-  const formattedDateString = moment(transferDate.toISOString()).format(
-    "DD-MM-yyyy"
-  );
-  const transferPrice = await getTokenPriceByDate(formattedDateString);
-  for (const transfer of transferHistory) {
-    transfer.price = transferPrice;
   }
 
   await ctx.store.save(Array.from(accounts.values()));
@@ -146,20 +142,19 @@ function getAccount(m: Map<string, Account>, id: string): Account {
 }
 
 async function getTokenPriceByDate(date: string): Promise<bigint> {
+
   if (priceCache.has(date)) return priceCache.get(date);
 
-  priceCache.set(
-    date,
-    axios
+  async function callExternalAPI(date: string) {
+    return axios
       .get(
         `https://api.coingecko.com/api/v3/coins/${blockchain}/history?date=${date}&localization=false`
       )
       .then((res) => {
-        // console.log(`statusCode: ${res.status}`);
-        if (res.data.market_data.current_price) {
+        if (res.data.market_data) {
           return res.data.market_data.current_price.usd;
         }
-        return Promise.reject("no current_price present in API");
+        return 0;
       })
       .catch((error) => {
         console.error(error);
@@ -167,6 +162,13 @@ async function getTokenPriceByDate(date: string): Promise<bigint> {
         priceCache.delete(date);
         return Promise.reject(error);
       })
+  }
+  // need to debounce the API request, to avoid hitting public API rate limit
+  const debouncedTokenPriceByDate = debounce(callExternalAPI, 1500);
+
+  priceCache.set(
+    date,
+    await debouncedTokenPriceByDate(date)
   );
 
   return priceCache.get(date);
