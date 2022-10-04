@@ -75,7 +75,7 @@ processor.run(new TypeormDatabase(), async (ctx) => {
     );
 
     const formattedDateString = moment(transferDate.toISOString()).format(
-      "DD-MM-yyyy"
+      "01-MM-yyyy"
     );
     const transferPrice = await getTokenPriceByDate(formattedDateString);
 
@@ -165,11 +165,11 @@ async function getTokenPriceByDate(date: string): Promise<bigint> {
       })
   }
   // need to debounce the API request, to avoid hitting public API rate limit
-  const debouncedTokenPriceByDate = debounce(callExternalAPI, 2000);
+  // const debouncedTokenPriceByDate = debounce(callExternalAPI, 2000);
 
   priceCache.set(
     date,
-    await debouncedTokenPriceByDate(date)
+    await callExternalAPI(date)
   );
 
   return priceCache.get(date);
