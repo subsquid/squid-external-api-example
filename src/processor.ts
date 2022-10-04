@@ -75,7 +75,7 @@ processor.run(new TypeormDatabase(), async (ctx) => {
     );
 
     const formattedDateString = moment(transferDate.toISOString()).format(
-      "01-MM-yyyy"
+      "DD-MM-yyyy"
     );
     const transferPrice = await getTokenPriceByDate(formattedDateString);
 
@@ -114,7 +114,7 @@ function getTransfers(ctx: Ctx): TransferEvent[] {
         if (e.asV900) {
           let [from, to, amount] = e.asV900;
           rec = { from, to, amount };
-        }  else {
+        } else {
           rec = e.asV1201;
         }
         transfers.push({
@@ -142,35 +142,43 @@ function getAccount(m: Map<string, Account>, id: string): Account {
 }
 
 async function getTokenPriceByDate(date: string): Promise<bigint> {
-
   if (priceCache.has(date)) return priceCache.get(date);
 
-  async function callExternalAPI(date: string) {
-    console.log(`Calling API for ${date}, at timestamp ${Date.now()}`);
-    return axios
+  console.log(`cache miss on date ${date}`);
+
+  async function fillPriceCache() {
+    console.log("filling up price cache...");
+    const ohlc = await axios
       .get(
-        `https://api.coingecko.com/api/v3/coins/${blockchain}/history?date=${date}&localization=false`
+        // see https://docs.cryptowat.ch/rest-api/markets/ohlc
+        // plus, reverse engineering on their v2, on https://cryptowat.ch/charts/KRAKEN:BTC-USD
+        `https://api.cryptowat.ch/v2/markets/2909869/ohlc/1d`
       )
       .then((res) => {
-        if (res.data.market_data) {
-          return res.data.market_data.current_price.usd;
-        }
-        return 0;
+        return res.data.result["1d"];
       })
       .catch((error) => {
-        console.error(error);
-        // Delete cache entry if API call fails
-        priceCache.delete(date);
+        console.error(
+          `Failed API for with status code: ${error.response.status} ${error.message}`
+        );
         return Promise.reject(error);
-      })
-  }
-  // need to debounce the API request, to avoid hitting public API rate limit
-  // const debouncedTokenPriceByDate = debounce(callExternalAPI, 2000);
+      });
 
-  priceCache.set(
-    date,
-    await callExternalAPI(date)
-  );
+    for (const day of ohlc) {
+      // the API returns past 6000 values, only update the ones we don't have in cache
+      if (!priceCache.has(date)) {
+        priceCache.set(moment(new Date(day.ct)).format("DD-MM-yyyy"), day.c);
+      }
+    }
+
+    return true;
+  }
+
+  await fillPriceCache();
+
+  // the fallback to 0 covers cases where transfers appear on chain, 
+  // but markets still didn't have a quote of the token
+  if (!priceCache.has(date)) priceCache.set(date, 0);
 
   return priceCache.get(date);
 }
