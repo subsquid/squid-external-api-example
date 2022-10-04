@@ -156,7 +156,10 @@ async function getTokenPriceByDate(date: string): Promise<bigint> {
       )
       .then((res) => {
         // console.log(`statusCode: ${res.status}`);
-        return res.data.market_data.current_price.usd;
+        if (res.data.market_data.current_price) {
+          return res.data.market_data.current_price.usd;
+        }
+        return Promise.reject("no current_price present in API");
       })
       .catch((error) => {
         console.error(error);
