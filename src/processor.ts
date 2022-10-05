@@ -111,7 +111,7 @@ function getTransfers(ctx: Ctx): TransferEvent[] {
       if (item.name == "Balances.Transfer") {
         let e = new BalancesTransferEvent(ctx, item.event);
         let rec: { from: Uint8Array; to: Uint8Array; amount: bigint };
-        if (e.asV900) {
+        if (e.isV900) {
           let [from, to, amount] = e.asV900;
           rec = { from, to, amount };
         } else {
