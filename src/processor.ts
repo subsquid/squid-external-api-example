@@ -74,10 +74,15 @@ processor.run(new TypeormDatabase(), async (ctx) => {
       })
     );
 
-    const formattedDateString = moment(transferDate.toISOString()).format(
-      "DD-MM-yyyy"
-    );
-    const transferPrice = await getTokenPriceByDate(formattedDateString);
+    // initialize with 0 for dates before 11 January 2022, 
+    // when API starts to have values
+    let transferPrice = 0n;
+    if (Number(t.timestamp) > Number(1641945600000)) {
+      const formattedDateString = moment(transferDate.toISOString()).format(
+        "DD-MM-yyyy"
+      );
+      transferPrice = await getTokenPriceByDate(formattedDateString);
+    }
 
     transferHistory.push(
       new Transfer({
@@ -144,41 +149,29 @@ function getAccount(m: Map<string, Account>, id: string): Account {
 async function getTokenPriceByDate(date: string): Promise<bigint> {
   if (priceCache.has(date)) return priceCache.get(date);
 
-  console.log(`cache miss on date ${date}`);
+  const ohlc = await axios
+    .get(
+      // see https://docs.cryptowat.ch/rest-api/markets/ohlc
+      // plus, reverse engineering on their v2, on https://cryptowat.ch/charts/KRAKEN:BTC-USD
+      `https://api.cryptowat.ch/v2/markets/2909869/ohlc/1d`
+    )
+    .then((res) => {
+      return res.data.result["1d"];
+    })
+    .catch((error) => {
+      console.error(
+        `Failed API for with status code: ${error.response.status} ${error.message}`
+      );
+      return Promise.reject(error);
+    });
 
-  async function fillPriceCache() {
-    console.log("filling up price cache...");
-    const ohlc = await axios
-      .get(
-        // see https://docs.cryptowat.ch/rest-api/markets/ohlc
-        // plus, reverse engineering on their v2, on https://cryptowat.ch/charts/KRAKEN:BTC-USD
-        `https://api.cryptowat.ch/v2/markets/2909869/ohlc/1d`
-      )
-      .then((res) => {
-        return res.data.result["1d"];
-      })
-      .catch((error) => {
-        console.error(
-          `Failed API for with status code: ${error.response.status} ${error.message}`
-        );
-        return Promise.reject(error);
-      });
-
-    for (const day of ohlc) {
-      // the API returns past 6000 values, only update the ones we don't have in cache
-      if (!priceCache.has(date)) {
-        priceCache.set(moment(new Date(day.ct)).format("DD-MM-yyyy"), day.c);
-      }
+  for (const dailyCandle of ohlc) {
+    // the API returns past 6000 values, only update the ones we don't have in cache
+    const candleDateString = moment(new Date(dailyCandle.ot * 1000)).format("DD-MM-yyyy");
+    if (!priceCache.has(candleDateString)) {
+      priceCache.set(candleDateString, dailyCandle.o);
     }
-
-    return true;
   }
-
-  await fillPriceCache();
-
-  // the fallback to 0 covers cases where transfers appear on chain, 
-  // but markets still didn't have a quote of the token
-  if (!priceCache.has(date)) priceCache.set(date, 0);
 
   return priceCache.get(date);
 }
